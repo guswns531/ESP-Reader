@@ -223,8 +223,16 @@ esp_err_t writeRegion(uint8_t command, const uint8_t *framebuffer, uint16_t x, u
     ESP_RETURN_ON_ERROR(setRamArea(x, y, w, h), kTag, "set partial area");
     ESP_RETURN_ON_ERROR(sendCommand(command), kTag, "write region cmd");
     setDc(1);
+
+    // Full-width regions are contiguous in memory — send as one SPI transaction
+    if (x == 0 && w == kWidth) {
+        const size_t offset      = (static_cast<size_t>(y) * kWidth) / 8;
+        const size_t total_bytes = (static_cast<size_t>(h) * kWidth) / 8;
+        return spiWrite(&framebuffer[offset], total_bytes);
+    }
+
     for (uint16_t row = 0; row < h; ++row) {
-        const size_t offset = (((static_cast<size_t>(y + row) * kWidth) + x) / 8);
+        const size_t offset    = (((static_cast<size_t>(y + row) * kWidth) + x) / 8);
         const size_t row_bytes = w / 8;
         ESP_RETURN_ON_ERROR(spiWrite(&framebuffer[offset], row_bytes), kTag, "write region data");
     }
@@ -393,9 +401,44 @@ void drawTriangleRight(int x, int y, int size, bool black)
 
 void drawFilledRect(int x, int y, int w, int h, bool black)
 {
+    // Clip to canvas
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (w <= 0 || h <= 0 || x >= kWidth || y >= kHeight) return;
+    if (x + w > kWidth)  w = kWidth  - x;
+    if (y + h > kHeight) h = kHeight - y;
+
+    const int x_end     = x + w;
+    // First byte index fully within [x, x_end)
+    const int byte_start = (x + 7) / 8;
+    // First byte index NOT fully within [x, x_end)
+    const int byte_end   = x_end / 8;
+    const uint8_t fill   = black ? 0x00u : 0xFFu;
+
     for (int yy = y; yy < y + h; ++yy) {
-        for (int xx = x; xx < x + w; ++xx) {
-            setPixelRaw(xx, yy, black);
+        const size_t row_base = (static_cast<size_t>(yy) * kWidth) / 8;
+
+        // Left partial byte
+        const int left_end = std::min(byte_start * 8, x_end);
+        for (int xx = x; xx < left_end; ++xx) {
+            const uint8_t mask = static_cast<uint8_t>(0x80u >> (xx & 7));
+            if (black) s_framebuffer[row_base + xx / 8] &= ~mask;
+            else       s_framebuffer[row_base + xx / 8] |=  mask;
+        }
+
+        // Full bytes in the middle (8 pixels at a time)
+        if (byte_start < byte_end) {
+            std::memset(&s_framebuffer[row_base + byte_start], fill,
+                        static_cast<size_t>(byte_end - byte_start));
+        }
+
+        // Right partial byte. When the rect fits within a single byte,
+        // the left-partial loop may have already covered the whole span.
+        const int right_start = std::max(left_end, byte_end * 8);
+        for (int xx = right_start; xx < x_end; ++xx) {
+            const uint8_t mask = static_cast<uint8_t>(0x80u >> (xx & 7));
+            if (black) s_framebuffer[row_base + xx / 8] &= ~mask;
+            else       s_framebuffer[row_base + xx / 8] |=  mask;
         }
     }
 }
