@@ -6,10 +6,10 @@
 
 namespace {
 
-constexpr int kMarginX = 16;
-constexpr int kHeaderBaseline = 34;
-constexpr int kDividerY = 48;
-constexpr int kBodyStartY = 72;
+constexpr int kMarginX = 8;
+constexpr int kHeaderBaseline = 26;
+constexpr int kDividerY = 40;
+constexpr int kBodyStartY = 64;
 constexpr int kSelectionBoxPadX = 6;
 constexpr int kSelectionBoxPadY = 3;
 constexpr int kListRegionY = 48;
