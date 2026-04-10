@@ -8,8 +8,8 @@
 
 namespace {
 
-constexpr std::size_t kMaxCharsPerLine = 18;
-constexpr std::size_t kMaxLinesPerPage = 8;
+constexpr std::size_t kMaxCharsPerLine = 34;
+constexpr std::size_t kMaxLinesPerPage = 14;
 
 std::string trim(const std::string &input)
 {

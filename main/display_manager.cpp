@@ -7,13 +7,23 @@
 namespace {
 
 constexpr int kMarginX = 16;
-constexpr int kHeaderBaseline = 30;
-constexpr int kDividerY = 40;
-constexpr int kBodyStartY = 68;
-constexpr int kFooterBaseline = 286;
-constexpr int kSelectionBoxHeight = 26;
+constexpr int kHeaderBaseline = 34;
+constexpr int kDividerY = 48;
+constexpr int kBodyStartY = 72;
+constexpr int kSelectionBoxPadX = 6;
+constexpr int kSelectionBoxPadY = 3;
 constexpr int kListRegionY = 48;
 constexpr int kListRegionH = 220;
+
+void drawTopRightHint(const std::string &line1, const std::string &line2)
+{
+    const int right_margin = 12;
+    epaper::setUiFont();
+    const int x1 = epaper::canvasWidth() - right_margin - epaper::textWidth(line1);
+    const int x2 = epaper::canvasWidth() - right_margin - epaper::textWidth(line2);
+    epaper::drawTextLine(x1, 16, line1, true);
+    epaper::drawTextLine(x2, 30, line2, true);
+}
 
 }  // namespace
 
@@ -25,26 +35,32 @@ esp_err_t DisplayManager::init()
 esp_err_t DisplayManager::showLibrary(const std::vector<DocumentEntry> &documents, std::size_t selected_index, bool partial)
 {
     epaper::clear(false);
-    epaper::drawTextLine(kMarginX, kHeaderBaseline, "LIBRARY", true);
+    epaper::setUiFont();
+    epaper::drawTitleText(kMarginX, kHeaderBaseline, "LIBRARY", true);
+    drawTopRightHint("UP/DN: MOVE", "RIGHT/ENTER");
     epaper::drawHLine(kMarginX, kDividerY, epaper::canvasWidth() - (kMarginX * 2), true);
 
     if (documents.empty()) {
         ESP_ERROR_CHECK(drawMultilineText(kMarginX, kBodyStartY, {"NO DOCUMENTS", "PUT .MD IN SPIFFS"}, false));
-        epaper::drawTextLine(kMarginX, kFooterBaseline, "K3: OPEN", true);
         return epaper::updateFull();
     } else {
         int baseline = kBodyStartY;
         for (std::size_t i = 0; i < documents.size(); ++i) {
             const bool selected = i == selected_index;
+            const int label_width = epaper::textWidth(documents[i].title);
             if (selected) {
-                epaper::drawFilledRect(kMarginX - 6, baseline - 18, epaper::canvasWidth() - (kMarginX * 2) + 12, kSelectionBoxHeight, true);
+                epaper::drawRect(
+                    kMarginX - kSelectionBoxPadX + 1,
+                    baseline - epaper::lineHeight() - 3,
+                    label_width + (kSelectionBoxPadX * 2),
+                    epaper::lineHeight() + (kSelectionBoxPadY * 2) + 1,
+                    true,
+                    2);
             }
-            epaper::drawTextLine(kMarginX, baseline, documents[i].title, !selected);
-            baseline += epaper::lineHeight() + 10;
+            epaper::drawTextLine(kMarginX, baseline, documents[i].title, true);
+            baseline += epaper::lineHeight() + 8;
         }
     }
-
-    epaper::drawTextLine(kMarginX, kFooterBaseline, "K4 UP  K3 DN  K2 OPEN", true);
     if (partial) {
         return epaper::updatePartial(0, kListRegionY, epaper::canvasWidth(), kListRegionH);
     }
@@ -54,22 +70,22 @@ esp_err_t DisplayManager::showLibrary(const std::vector<DocumentEntry> &document
 esp_err_t DisplayManager::showReading(const DocumentEntry &document, std::size_t page_index)
 {
     epaper::clear(false);
-    epaper::drawTextLine(kMarginX, kHeaderBaseline, document.title, true);
+    epaper::setUiFont();
+    epaper::drawTitleText(kMarginX, kHeaderBaseline, document.title, true);
+    drawTopRightHint("LEFT/RIGHT", "ENTER: LIB");
     epaper::drawHLine(kMarginX, kDividerY, epaper::canvasWidth() - (kMarginX * 2), true);
 
     const std::size_t safe_index = std::min(page_index, document.pages.size() - 1);
     ESP_ERROR_CHECK(drawMultilineText(kMarginX, kBodyStartY, document.pages[safe_index].lines, false));
 
-    const std::string footer = "P " + std::to_string(safe_index + 1) + "/" + std::to_string(document.pages.size()) +
-                               "  K1 LIB  K4 <  K2 >";
-    epaper::drawTextLine(kMarginX, kFooterBaseline, footer, true);
     return epaper::updateFull();
 }
 
 esp_err_t DisplayManager::showError(const std::string &message)
 {
     epaper::clear(false);
-    epaper::drawTextLine(kMarginX, kHeaderBaseline, "ERROR", true);
+    epaper::setUiFont();
+    epaper::drawTitleText(kMarginX, kHeaderBaseline, "ERROR", true);
     epaper::drawHLine(kMarginX, kDividerY, epaper::canvasWidth() - (kMarginX * 2), true);
     return drawMultilineText(kMarginX, kBodyStartY, {message}, false) == ESP_OK ? epaper::updateFull() : ESP_FAIL;
 }
@@ -80,7 +96,7 @@ esp_err_t DisplayManager::drawMultilineText(int x, int y, const std::vector<std:
     int baseline = y;
     for (const auto &line : lines) {
         epaper::drawTextLine(x, baseline, line, true);
-        baseline += epaper::lineHeight() + 4;
+        baseline += epaper::lineHeight() + 6;
     }
     return ESP_OK;
 }

@@ -2,10 +2,9 @@
 
 #include <cstring>
 
-extern "C" {
 #include "FreeMonoBold9pt7b.h"
-}
-
+#include "Adafruit_GFX.h"
+#include "U8g2_for_Adafruit_GFX.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
@@ -16,6 +15,7 @@ namespace epaper {
 namespace {
 
 constexpr const char *kTag = "epaper_hal";
+constexpr int kTitleScale = 2;
 constexpr gpio_num_t kPinCs = GPIO_NUM_10;
 constexpr gpio_num_t kPinBusy = GPIO_NUM_3;
 constexpr gpio_num_t kPinRst = GPIO_NUM_46;
@@ -29,6 +29,64 @@ uint8_t s_prev_framebuffer[(kWidth * kHeight) / 8];
 bool s_power_is_on;
 bool s_init_display_done;
 bool s_hibernating;
+
+inline void setPixelRaw(int x, int y, bool black);
+
+int titleTextWidthInternal(const std::string &text)
+{
+    const GFXfont *font = &FreeMonoBold9pt7b;
+    int width = 0;
+    for (char c : text) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (uc < font->first || uc > font->last) {
+            width += 6 * kTitleScale;
+            continue;
+        }
+        const GFXglyph *glyph = &font->glyph[uc - font->first];
+        width += glyph->xAdvance * kTitleScale;
+    }
+    return width;
+}
+
+void drawCharScaled(int16_t x, int16_t y, unsigned char c, const GFXfont *font, bool black, int scale)
+{
+    if (c < font->first || c > font->last) {
+        return;
+    }
+
+    const GFXglyph *glyph = &font->glyph[c - font->first];
+    const uint8_t *bitmap = font->bitmap + glyph->bitmapOffset;
+    uint8_t bits = 0;
+    uint8_t bit_mask = 0;
+
+    for (uint8_t yy = 0; yy < glyph->height; ++yy) {
+        for (uint8_t xx = 0; xx < glyph->width; ++xx) {
+            if (!(bit_mask >>= 1)) {
+                bits = *bitmap++;
+                bit_mask = 0x80;
+            }
+            if (bits & bit_mask) {
+                const int16_t px = x + (glyph->xOffset + xx) * scale;
+                const int16_t py = y + (glyph->yOffset + yy) * scale;
+                drawFilledRect(px, py, scale, scale, black);
+            }
+        }
+    }
+}
+
+class EpaperGfxAdapter : public Adafruit_GFX {
+public:
+    EpaperGfxAdapter() : Adafruit_GFX(kWidth, kHeight) {}
+
+    void drawPixel(int16_t x, int16_t y, uint16_t color) override
+    {
+        setPixelRaw(x, y, color != 0);
+    }
+};
+
+EpaperGfxAdapter s_gfx_adapter;
+U8G2_FOR_ADAFRUIT_GFX s_u8g2;
+const uint8_t *s_font_ui = u8g2_font_unifont_t_korean2;
 
 void setDc(int level)
 {
@@ -231,32 +289,6 @@ inline void setPixelRaw(int x, int y, bool black)
     }
 }
 
-void drawChar(int16_t x, int16_t y, unsigned char c, const GFXfont *font, bool black)
-{
-    if (c < font->first || c > font->last) {
-        return;
-    }
-
-    const GFXglyph *glyph = &font->glyph[c - font->first];
-    const uint8_t *bitmap = font->bitmap + glyph->bitmapOffset;
-    uint8_t bits = 0;
-    uint8_t bit_mask = 0;
-
-    for (uint8_t yy = 0; yy < glyph->height; ++yy) {
-        for (uint8_t xx = 0; xx < glyph->width; ++xx) {
-            if (!(bit_mask >>= 1)) {
-                bits = *bitmap++;
-                bit_mask = 0x80;
-            }
-            if (bits & bit_mask) {
-                const int16_t px = x + (glyph->xOffset + xx) * kFontScale;
-                const int16_t py = y + (glyph->yOffset + yy) * kFontScale;
-                drawFilledRect(px, py, kFontScale, kFontScale, black);
-            }
-        }
-    }
-}
-
 }  // namespace
 
 esp_err_t init()
@@ -264,6 +296,11 @@ esp_err_t init()
     ESP_RETURN_ON_ERROR(initGpio(), kTag, "gpio");
     ESP_RETURN_ON_ERROR(initSpi(), kTag, "spi");
     ESP_RETURN_ON_ERROR(initPanel(), kTag, "panel");
+    s_u8g2.begin(s_gfx_adapter);
+    s_u8g2.setFont(s_font_ui);
+    s_u8g2.setForegroundColor(1);
+    s_u8g2.setBackgroundColor(0);
+    s_u8g2.setFontMode(1);
     clear(false);
     std::memset(s_prev_framebuffer, 0xFF, sizeof(s_prev_framebuffer));
     return ESP_OK;
@@ -274,19 +311,48 @@ void clear(bool black)
     std::memset(s_framebuffer, black ? 0x00 : 0xFF, sizeof(s_framebuffer));
 }
 
+void setUiFont()
+{
+    s_u8g2.setFont(s_font_ui);
+}
+
 void drawTextLine(int x, int baseline_y, const std::string &text, bool black)
+{
+    s_u8g2.setForegroundColor(black ? 1 : 0);
+    s_u8g2.drawUTF8(x, baseline_y, text.c_str());
+}
+
+void drawTextLineBold(int x, int baseline_y, const std::string &text, bool black)
+{
+    s_u8g2.setForegroundColor(black ? 1 : 0);
+    s_u8g2.drawUTF8(x, baseline_y, text.c_str());
+    s_u8g2.drawUTF8(x + 1, baseline_y, text.c_str());
+}
+
+void drawTitleText(int x, int baseline_y, const std::string &text, bool black)
 {
     const GFXfont *font = &FreeMonoBold9pt7b;
     for (char c : text) {
         const unsigned char uc = static_cast<unsigned char>(c);
         if (uc < font->first || uc > font->last) {
-            x += 6 * kFontScale;
+            x += 6 * kTitleScale;
             continue;
         }
         const GFXglyph *glyph = &font->glyph[uc - font->first];
-        drawChar(x, baseline_y, uc, font, black);
-        x += glyph->xAdvance * kFontScale;
+        drawCharScaled(x, baseline_y, uc, font, black, kTitleScale);
+        drawCharScaled(x + 1, baseline_y, uc, font, black, kTitleScale);
+        x += glyph->xAdvance * kTitleScale;
     }
+}
+
+int titleTextWidth(const std::string &text)
+{
+    return titleTextWidthInternal(text);
+}
+
+int titleLineHeight()
+{
+    return FreeMonoBold9pt7b.yAdvance * kTitleScale;
 }
 
 void drawFilledRect(int x, int y, int w, int h, bool black)
@@ -295,6 +361,16 @@ void drawFilledRect(int x, int y, int w, int h, bool black)
         for (int xx = x; xx < x + w; ++xx) {
             setPixelRaw(xx, yy, black);
         }
+    }
+}
+
+void drawRect(int x, int y, int w, int h, bool black, int thickness)
+{
+    for (int i = 0; i < thickness; ++i) {
+        drawFilledRect(x + i, y + i, w - (i * 2), 1, black);
+        drawFilledRect(x + i, y + h - 1 - i, w - (i * 2), 1, black);
+        drawFilledRect(x + i, y + i, 1, h - (i * 2), black);
+        drawFilledRect(x + w - 1 - i, y + i, 1, h - (i * 2), black);
     }
 }
 
@@ -315,7 +391,18 @@ int canvasHeight()
 
 int lineHeight()
 {
-    return FreeMonoBold9pt7b.yAdvance * kFontScale;
+    return s_u8g2.getFontAscent() - s_u8g2.getFontDescent();
+}
+
+int textWidth(const std::string &text)
+{
+    return s_u8g2.getUTF8Width(text.c_str());
+}
+
+void drawUtf8Line(int x, int baseline_y, const char *text)
+{
+    s_u8g2.setForegroundColor(1);
+    s_u8g2.drawUTF8(x, baseline_y, text);
 }
 
 esp_err_t updateFull()
