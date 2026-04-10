@@ -1,0 +1,13 @@
+{
+  "name": "esp-reader-tools",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "preprocess-math": "node scripts/preprocess_math.js"
+  },
+  "dependencies": {
+    "katex": "^0.16.45",
+    "mathjax-full": "^3.2.1",
+    "sharp": "^0.34.5"
+  }
+}

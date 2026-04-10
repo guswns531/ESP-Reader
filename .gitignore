@@ -1,5 +1,7 @@
 .DS_Store
 .cache/
 build/
+generated_data/
+node_modules/
 sdkconfig
 sdkconfig.old

@@ -12,6 +12,8 @@ public:
     esp_err_t init();
     esp_err_t showLibrary(const std::vector<DocumentEntry> &documents, std::size_t selected_index, bool partial);
     esp_err_t showReading(const DocumentEntry &document, std::size_t page_index, bool partial, bool force_full);
+    esp_err_t showToc(const DocumentEntry &document, std::size_t selected_toc_index,
+                      std::size_t current_page_index, bool partial, bool force_full);
     esp_err_t showError(const std::string &message);
 
 private:

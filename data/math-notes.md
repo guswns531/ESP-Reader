@@ -10,14 +10,20 @@
 2. 긴 문서 탐색 개선
 3. 수식 block 처리 전략 확정
 
-Inline math 예시:
-
-$E = mc^2$
+Inline math 예시: $E = mc^2$
 
 Block math 예시:
 
 $$
 \int_0^1 x^2 dx = 1/3
+$$
+
+$$                                                                                                                      
+\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}                                                                                      
+$$                                                                                                                      
+                                        
+$$                                                                                                                      
+\sum_{i=0}^{n} x_i = \int_0^\infty f(x)\,dx
 $$
 
 Code block 예시:

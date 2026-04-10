@@ -52,6 +52,10 @@ esp_err_t AppController::renderCurrentState()
         if (documents_.empty()) {
             return display_.showLibrary(documents_, selected_document_, false);
         }
+        if (reading_mode_ == ReadingMode::Toc) {
+            return display_.showToc(documents_.at(selected_document_), selected_toc_index_,
+                                    selected_page_, next_render_partial_, force_full_refresh_);
+        }
         return display_.showReading(documents_.at(selected_document_), selected_page_, next_render_partial_, force_full_refresh_);
     case AppState::Error:
         return display_.showError("Unhandled app state");
@@ -102,7 +106,51 @@ void AppController::handleKey(InputKey key)
     }
 
     if (state_ == AppState::Reading) {
-        const auto &pages = documents_.at(selected_document_).pages;
+        const auto &document = documents_.at(selected_document_);
+        const auto &pages = document.pages;
+        const auto &toc = document.toc;
+
+        if (reading_mode_ == ReadingMode::Toc) {
+            switch (key) {
+            case InputKey::Key1:
+                needs_render_ = true;
+                force_full_refresh_ = true;
+                break;
+            case InputKey::Key5:
+                reading_mode_ = ReadingMode::Page;
+                selected_page_ = toc_return_page_;
+                needs_render_ = true;
+                next_render_partial_ = true;
+                break;
+            case InputKey::Key4:
+                if (!toc.empty() && selected_toc_index_ > 0) {
+                    --selected_toc_index_;
+                    needs_render_ = true;
+                    next_render_partial_ = true;
+                }
+                break;
+            case InputKey::Key3:
+                if (!toc.empty() && selected_toc_index_ + 1 < toc.size()) {
+                    ++selected_toc_index_;
+                    needs_render_ = true;
+                    next_render_partial_ = true;
+                }
+                break;
+            case InputKey::Key2:
+                if (!toc.empty()) {
+                    selected_page_ = std::min<std::size_t>(toc[selected_toc_index_].page_index, pages.size() - 1);
+                    reading_mode_ = ReadingMode::Page;
+                    persistSession();
+                    needs_render_ = true;
+                    next_render_partial_ = true;
+                }
+                break;
+            default:
+                break;
+            }
+            return;
+        }
+
         switch (key) {
         case InputKey::Key1:
             needs_render_ = true;
@@ -130,6 +178,22 @@ void AppController::handleKey(InputKey key)
                 next_render_partial_ = true;
             }
             break;
+        case InputKey::Key2:
+            reading_mode_ = ReadingMode::Toc;
+            toc_return_page_ = selected_page_;
+            selected_toc_index_ = 0;
+            if (!toc.empty()) {
+                for (std::size_t i = 0; i < toc.size(); ++i) {
+                    if (toc[i].page_index >= selected_page_) {
+                        selected_toc_index_ = i;
+                        break;
+                    }
+                    selected_toc_index_ = i;
+                }
+            }
+            needs_render_ = true;
+            next_render_partial_ = true;
+            break;
         default:
             break;
         }
@@ -149,6 +213,9 @@ void AppController::enterReading()
         return;
     }
     state_ = AppState::Reading;
+    reading_mode_ = ReadingMode::Page;
+    selected_toc_index_ = 0;
+    toc_return_page_ = 0;
     if (!documents_[selected_document_].pages.empty()) {
         selected_page_ = std::min<std::size_t>(
             documents_[selected_document_].saved_page_index,

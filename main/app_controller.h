@@ -17,6 +17,11 @@ public:
     void tick();
 
 private:
+    enum class ReadingMode {
+        Page,
+        Toc,
+    };
+
     void buildMockDocuments();
     esp_err_t renderCurrentState();
     void handleKey(InputKey key);
@@ -36,4 +41,7 @@ private:
     std::vector<DocumentEntry> documents_;
     std::size_t selected_document_{0};
     std::size_t selected_page_{0};
+    ReadingMode reading_mode_{ReadingMode::Page};
+    std::size_t selected_toc_index_{0};
+    std::size_t toc_return_page_{0};
 };

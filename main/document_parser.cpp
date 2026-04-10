@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <cstdlib>
 #include <cstdint>
 #include <sstream>
 #include <utility>
@@ -66,8 +68,30 @@ int glyphColumns(uint32_t codepoint)
     return 1;
 }
 
+bool parseIntStrict(const std::string &text, int *value)
+{
+    char *end = nullptr;
+    const long parsed = std::strtol(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0') {
+        return false;
+    }
+    *value = static_cast<int>(parsed);
+    return true;
+}
+
 int visualColumns(const std::string &text)
 {
+    if (text.starts_with("[[MATH_PBM|") && text.ends_with("]]")) {
+        const std::size_t sep1 = text.find('|');
+        const std::size_t sep2 = text.find('|', sep1 == std::string::npos ? sep1 : sep1 + 1);
+        const std::size_t sep3 = text.find('|', sep2 == std::string::npos ? sep2 : sep2 + 1);
+        if (sep1 != std::string::npos && sep2 != std::string::npos && sep3 != std::string::npos) {
+            int asset_width = 0;
+            if (parseIntStrict(text.substr(sep2 + 1, sep3 - sep2 - 1), &asset_width)) {
+                return std::max(1, (asset_width + 7) / 8);
+            }
+        }
+    }
     int width = 0;
     for (std::size_t i = 0; i < text.size();) {
         std::size_t advance = 1;
@@ -130,6 +154,36 @@ bool isRuleLine(const std::string &text)
     return std::all_of(text.begin(), text.end(), [](char c) { return c == '-'; });
 }
 
+bool parseMathImageMarker(const std::string &text, RenderLine *line)
+{
+    constexpr const char *kPrefix = "[[MATH_PBM|";
+    constexpr const char *kSuffix = "]]";
+    if (!text.starts_with(kPrefix) || !text.ends_with(kSuffix)) {
+        return false;
+    }
+
+    const std::string payload = text.substr(std::strlen(kPrefix), text.size() - std::strlen(kPrefix) - std::strlen(kSuffix));
+    const std::size_t sep1 = payload.find('|');
+    const std::size_t sep2 = payload.find('|', sep1 == std::string::npos ? sep1 : sep1 + 1);
+    if (sep1 == std::string::npos || sep2 == std::string::npos) {
+        return false;
+    }
+    const std::string path = payload.substr(0, sep1);
+    int width = 0;
+    int height = 0;
+    if (!parseIntStrict(payload.substr(sep1 + 1, sep2 - sep1 - 1), &width) ||
+        !parseIntStrict(payload.substr(sep2 + 1), &height)) {
+        return false;
+    }
+
+    line->kind = RenderLineKind::Math;
+    line->asset_path = path;
+    line->asset_width = width;
+    line->asset_height = height;
+    line->text.clear();
+    return true;
+}
+
 std::string normalizeInlineMarkdown(const std::string &text)
 {
     std::string out;
@@ -170,7 +224,7 @@ bool isBoldLine(const std::string &text)
 void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, RenderLineKind kind)
 {
     if (text.empty()) {
-        lines.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
+        lines.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
         return;
     }
 
@@ -183,13 +237,13 @@ void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, Render
     while (words >> word) {
         while (visualColumns(word) > static_cast<int>(kMaxCharsPerLine)) {
             if (!current.empty()) {
-                lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
+                lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold, .asset_path = "", .asset_width = 0, .asset_height = 0});
                 current.clear();
                 current_cols = 0;
             }
             std::string segment = takePrefixByColumns(&word, static_cast<int>(kMaxCharsPerLine));
             if (!segment.empty()) {
-                lines.push_back(RenderLine{.text = segment, .kind = kind, .bold = bold});
+                lines.push_back(RenderLine{.text = segment, .kind = kind, .bold = bold, .asset_path = "", .asset_width = 0, .asset_height = 0});
             } else {
                 break;
             }
@@ -203,7 +257,7 @@ void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, Render
         // +1 for the space separator when appending to a non-empty line
         const int needed = current.empty() ? word_cols : (current_cols + 1 + word_cols);
         if (needed > static_cast<int>(kMaxCharsPerLine) && !current.empty()) {
-            lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
+            lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold, .asset_path = "", .asset_width = 0, .asset_height = 0});
             current = word;
             current_cols = word_cols;
         } else {
@@ -215,7 +269,7 @@ void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, Render
         }
     }
     if (!current.empty()) {
-        lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
+        lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold, .asset_path = "", .asset_width = 0, .asset_height = 0});
     }
 }
 
@@ -240,9 +294,31 @@ void appendPageLine(std::vector<DocumentPage> &pages, const std::string &title, 
     buffer.push_back(line);
 }
 
-std::vector<RenderLine> parseSourceToLines(const std::string &source)
+struct ParsedDocument {
+    std::vector<RenderLine> lines;
+    std::vector<DocumentTocEntry> toc;
+};
+
+void appendHeading(std::vector<RenderLine> &output, std::vector<DocumentTocEntry> &toc,
+                   const std::string &text, int level, const std::string &prefix)
 {
-    std::vector<RenderLine> output;
+    const std::size_t page_index = output.size() / kMaxLinesPerPage;
+    const std::size_t start = output.size();
+    pushWrapped(output, prefix + text, RenderLineKind::Normal);
+    if (!output.empty() && output.size() > start) {
+        output.back().bold = true;
+    }
+    toc.push_back(DocumentTocEntry{
+        .title = text,
+        .page_index = page_index,
+        .level = level,
+    });
+    output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
+}
+
+ParsedDocument parseSourceToLines(const std::string &source)
+{
+    ParsedDocument parsed;
     std::istringstream stream(source);
     std::string line;
     bool in_code_block = false;
@@ -252,96 +328,91 @@ std::vector<RenderLine> parseSourceToLines(const std::string &source)
         std::string trimmed = trim(line);
         if (trimmed.rfind("```", 0) == 0) {
             in_code_block = !in_code_block;
-            output.push_back(RenderLine{.text = in_code_block ? "[code]" : "", .kind = in_code_block ? RenderLineKind::Code : RenderLineKind::Spacer});
+            parsed.lines.push_back(RenderLine{.text = in_code_block ? "[code]" : "", .kind = in_code_block ? RenderLineKind::Code : RenderLineKind::Spacer, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
             continue;
         }
         if (trimmed == "$$") {
             in_math_block = !in_math_block;
-            output.push_back(RenderLine{.text = in_math_block ? "[math]" : "", .kind = in_math_block ? RenderLineKind::Math : RenderLineKind::Spacer});
             continue;
         }
 
         if (trimmed.empty()) {
-            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
+            parsed.lines.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
+            continue;
+        }
+
+        RenderLine math_image;
+        if (parseMathImageMarker(trimmed, &math_image)) {
+            parsed.lines.push_back(math_image);
             continue;
         }
 
         if (in_code_block) {
             while (visualColumns(trimmed) > static_cast<int>(kMaxCharsPerLine)) {
-                output.push_back(RenderLine{
+                parsed.lines.push_back(RenderLine{
                     .text = takePrefixByColumns(&trimmed, static_cast<int>(kMaxCharsPerLine)),
                     .kind = RenderLineKind::Code,
+                    .bold = false,
+                    .asset_path = "",
+                    .asset_width = 0,
+                    .asset_height = 0,
                 });
             }
-            output.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Code});
+            parsed.lines.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Code, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
             continue;
         }
 
         if (in_math_block) {
-            while (visualColumns(trimmed) > static_cast<int>(kMaxCharsPerLine)) {
-                output.push_back(RenderLine{
-                    .text = takePrefixByColumns(&trimmed, static_cast<int>(kMaxCharsPerLine)),
-                    .kind = RenderLineKind::Math,
-                });
-            }
-            output.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Math});
+            parsed.lines.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Math, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
             continue;
         }
 
         if (trimmed.size() >= 2 && trimmed.front() == '$' && trimmed.back() == '$' && trimmed != "$$") {
-            pushWrapped(output, trimmed, RenderLineKind::Math);
+            pushWrapped(parsed.lines, trimmed, RenderLineKind::Math);
             continue;
         }
 
+        if (trimmed.rfind("#### ", 0) == 0) {
+            appendHeading(parsed.lines, parsed.toc, trimmed.substr(5), 4, "#### ");
+            continue;
+        }
         if (trimmed.rfind("### ", 0) == 0) {
-            pushWrapped(output, std::string("### ") + trimmed.substr(4), RenderLineKind::Normal);
-            if (!output.empty()) {
-                output.back().bold = true;
-            }
-            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
+            appendHeading(parsed.lines, parsed.toc, trimmed.substr(4), 3, "### ");
             continue;
         }
         if (trimmed.rfind("## ", 0) == 0) {
-            pushWrapped(output, std::string("## ") + trimmed.substr(3), RenderLineKind::Normal);
-            if (!output.empty()) {
-                output.back().bold = true;
-            }
-            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
+            appendHeading(parsed.lines, parsed.toc, trimmed.substr(3), 2, "## ");
             continue;
         }
         if (trimmed.rfind("# ", 0) == 0) {
-            pushWrapped(output, trimmed, RenderLineKind::Normal);
-            if (!output.empty()) {
-                output.back().bold = true;
-            }
-            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
+            appendHeading(parsed.lines, parsed.toc, trimmed.substr(2), 1, "# ");
             continue;
         }
         if (trimmed.rfind("- ", 0) == 0 || trimmed.rfind("* ", 0) == 0) {
-            pushWrapped(output, trimmed.substr(2), RenderLineKind::List);
+            pushWrapped(parsed.lines, trimmed.substr(2), RenderLineKind::List);
             continue;
         }
         if (trimmed.rfind("> ", 0) == 0) {
-            pushWrapped(output, trimmed.substr(2), RenderLineKind::Quote);
+            pushWrapped(parsed.lines, trimmed.substr(2), RenderLineKind::Quote);
             continue;
         }
         if (isRuleLine(trimmed)) {
-            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Rule});
+            parsed.lines.push_back(RenderLine{.text = "", .kind = RenderLineKind::Rule, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0});
             continue;
         }
         if (trimmed.size() > 3 && std::isdigit(static_cast<unsigned char>(trimmed[0])) != 0) {
             const std::size_t dot = trimmed.find(". ");
             if (dot != std::string::npos) {
-                pushWrapped(output, trimmed.substr(dot + 2), RenderLineKind::List);
+                pushWrapped(parsed.lines, trimmed.substr(dot + 2), RenderLineKind::List);
                 continue;
             }
             continue;
         }
 
-        pushWrapped(output, trimmed, RenderLineKind::Normal);
+        pushWrapped(parsed.lines, trimmed, RenderLineKind::Normal);
     }
 
-    return output;
+    return parsed;
 }
 
 }  // namespace
@@ -352,9 +423,10 @@ DocumentEntry DocumentParser::parse(const std::string &path, const std::string &
     document.path = path;
     document.title = basenameWithoutExtension(path);
 
-    std::vector<RenderLine> lines = parseSourceToLines(source);
+    const ParsedDocument parsed = parseSourceToLines(source);
+    document.toc = parsed.toc;
     std::vector<RenderLine> page_buffer;
-    for (const auto &line : lines) {
+    for (const auto &line : parsed.lines) {
         appendPageLine(document.pages, document.title, page_buffer, line);
     }
     pushPage(document.pages, document.title, page_buffer);
@@ -362,7 +434,7 @@ DocumentEntry DocumentParser::parse(const std::string &path, const std::string &
     if (document.pages.empty()) {
         document.pages.push_back(DocumentPage{
             .title = document.title,
-            .lines = {RenderLine{.text = "(empty document)", .kind = RenderLineKind::Normal}},
+            .lines = {RenderLine{.text = "(empty document)", .kind = RenderLineKind::Normal, .bold = false, .asset_path = "", .asset_width = 0, .asset_height = 0}},
         });
     }
 

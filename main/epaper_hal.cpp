@@ -16,6 +16,8 @@ namespace {
 
 constexpr const char *kTag = "epaper_hal";
 constexpr int kTitleScale = 2;
+constexpr int kHeaderScaleNum = 3;
+constexpr int kHeaderScaleDen = 2;
 constexpr gpio_num_t kPinCs = GPIO_NUM_10;
 constexpr gpio_num_t kPinBusy = GPIO_NUM_3;
 constexpr gpio_num_t kPinRst = GPIO_NUM_46;
@@ -32,18 +34,39 @@ bool s_hibernating;
 
 inline void setPixelRaw(int x, int y, bool black);
 
-int titleTextWidthInternal(const std::string &text)
+int scaleValue(int value, int num, int den)
+{
+    return (value * num) / den;
+}
+
+int textWidthForScale(const std::string &text, int scale, int extra_bold)
 {
     const GFXfont *font = &FreeMonoBold9pt7b;
     int width = 0;
     for (char c : text) {
         const unsigned char uc = static_cast<unsigned char>(c);
         if (uc < font->first || uc > font->last) {
-            width += 6 * kTitleScale;
+            width += (6 * scale) + extra_bold;
             continue;
         }
         const GFXglyph *glyph = &font->glyph[uc - font->first];
-        width += glyph->xAdvance * kTitleScale;
+        width += (glyph->xAdvance * scale) + extra_bold;
+    }
+    return width;
+}
+
+int textWidthForRatio(const std::string &text, int num, int den, int extra_bold)
+{
+    const GFXfont *font = &FreeMonoBold9pt7b;
+    int width = 0;
+    for (char c : text) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (uc < font->first || uc > font->last) {
+            width += scaleValue(6, num, den) + extra_bold;
+            continue;
+        }
+        const GFXglyph *glyph = &font->glyph[uc - font->first];
+        width += scaleValue(glyph->xAdvance, num, den) + extra_bold;
     }
     return width;
 }
@@ -87,6 +110,8 @@ public:
 EpaperGfxAdapter s_gfx_adapter;
 U8G2_FOR_ADAFRUIT_GFX s_u8g2;
 const uint8_t *s_font_ui = u8g2_font_unifont_t_korean2;
+const uint8_t *s_font_math_greek = u8g2_font_unifont_t_greek;
+const uint8_t *s_font_math_symbol = u8g2_font_unifont_t_symbols;
 
 void setDc(int level)
 {
@@ -324,6 +349,16 @@ void setUiFont()
     s_u8g2.setFont(s_font_ui);
 }
 
+void setMathGreekFont()
+{
+    s_u8g2.setFont(s_font_math_greek);
+}
+
+void setMathSymbolFont()
+{
+    s_u8g2.setFont(s_font_math_symbol);
+}
+
 void drawTextLine(int x, int baseline_y, const std::string &text, bool black)
 {
     s_u8g2.setForegroundColor(black ? 1 : 0);
@@ -353,9 +388,50 @@ void drawTitleText(int x, int baseline_y, const std::string &text, bool black)
     }
 }
 
+void drawHeaderText(int x, int baseline_y, const std::string &text, bool black)
+{
+    const GFXfont *font = &FreeMonoBold9pt7b;
+    for (char c : text) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (uc < font->first || uc > font->last) {
+            x += scaleValue(6, kHeaderScaleNum, kHeaderScaleDen) + 1;
+            continue;
+        }
+        const GFXglyph *glyph = &font->glyph[uc - font->first];
+        const uint8_t *bitmap = font->bitmap + glyph->bitmapOffset;
+        uint8_t bits = 0;
+        uint8_t bit_mask = 0;
+
+        for (uint8_t yy = 0; yy < glyph->height; ++yy) {
+            const int y0 = baseline_y + scaleValue(glyph->yOffset + yy, kHeaderScaleNum, kHeaderScaleDen);
+            const int y1 = baseline_y + scaleValue(glyph->yOffset + yy + 1, kHeaderScaleNum, kHeaderScaleDen);
+            const int scaled_h = std::max(1, y1 - y0);
+            for (uint8_t xx = 0; xx < glyph->width; ++xx) {
+                if (!(bit_mask >>= 1)) {
+                    bits = *bitmap++;
+                    bit_mask = 0x80;
+                }
+                if (bits & bit_mask) {
+                    const int x0 = x + scaleValue(glyph->xOffset + xx, kHeaderScaleNum, kHeaderScaleDen);
+                    const int x1 = x + scaleValue(glyph->xOffset + xx + 1, kHeaderScaleNum, kHeaderScaleDen);
+                    const int scaled_w = std::max(1, x1 - x0);
+                    drawFilledRect(x0, y0, scaled_w, scaled_h, black);
+                    drawFilledRect(x0 + 1, y0, scaled_w, scaled_h, black);
+                }
+            }
+        }
+        x += scaleValue(glyph->xAdvance, kHeaderScaleNum, kHeaderScaleDen) + 1;
+    }
+}
+
+int headerTextWidth(const std::string &text)
+{
+    return textWidthForRatio(text, kHeaderScaleNum, kHeaderScaleDen, 1);
+}
+
 int titleTextWidth(const std::string &text)
 {
-    return titleTextWidthInternal(text);
+    return textWidthForScale(text, kTitleScale, 0);
 }
 
 int titleLineHeight()

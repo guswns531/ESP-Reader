@@ -6,9 +6,12 @@ idf_component_register(
         "document_parser.cpp"
         "epaper_hal.cpp"
         "input_manager.cpp"
+        "math_renderer.cpp"
         "session_manager.cpp"
         "storage_manager.cpp"
         "U8g2_for_Adafruit_GFX.cpp"
+        "u8g2_font_unifont_t_greek.c"
+        "u8g2_font_unifont_t_symbols.c"
         "u8g2_font_unifont_t_korean2.cpp"
     PRIV_REQUIRES
         nvs_flash
@@ -24,4 +27,4 @@ idf_component_register(
         "../../third_party/adafruit_gfx/Fonts"
 )
 
-spiffs_create_partition_image(storage ../data FLASH_IN_PROJECT)
+spiffs_create_partition_image(storage ../generated_data FLASH_IN_PROJECT)
