@@ -29,10 +29,10 @@ ESP-Reader는 범용 전자책 단말기보다 아래 성격에 가깝다.
 
 ## Documents
 
-- [spec.md](./spec.md): 1차 MVP 기능 스펙
-- [roadmap.md](./roadmap.md): 단계별 제품 확장 계획
-- [architecture.md](./architecture.md): 시스템 구조와 모듈 경계
-- [format.md](./format.md): Markdown 및 수식 지원 정책
+- [docs/spec.md](./docs/spec.md): 1차 MVP 기능 스펙
+- [docs/roadmap.md](./docs/roadmap.md): 단계별 제품 확장 계획
+- [docs/architecture.md](./docs/architecture.md): 시스템 구조와 모듈 경계
+- [docs/format.md](./docs/format.md): Markdown 및 수식 지원 정책
 
 ## Initial Scope
 
@@ -52,6 +52,49 @@ ESP-Reader는 범용 전자책 단말기보다 아래 성격에 가깝다.
 - App Model: `state machine + event-driven`
 - Storage: `internal flash + NVS`
 - Display Policy: `stable full refresh first`
+
+## Current Skeleton
+
+현재 구현된 골격은 아래까지 포함한다.
+
+- `Library` 화면 표시
+- `Reading` 화면 표시
+- ADC 5-key 입력 처리
+- 문서 선택 전환
+- 페이지 전환
+- e-paper 전체 화면 refresh
+
+현재는 실제 내부 플래시 Markdown 로딩 대신 `mock document`로 동작한다.
+
+키 동작:
+
+- `KEY4`: 이전 문서 또는 이전 페이지
+- `KEY2`: 다음 문서 또는 다음 페이지
+- `KEY3`: 문서 열기
+- `KEY1`: 라이브러리로 복귀
+
+## Build And Flash
+
+빌드:
+
+```sh
+. /Users/hyeonjun/Workspace/WeActStudio.ESP32S3-AorB/esp/esp-idf/export.sh >/dev/null 2>&1
+idf.py build
+```
+
+플래시:
+
+```sh
+. /Users/hyeonjun/Workspace/WeActStudio.ESP32S3-AorB/esp/esp-idf/export.sh >/dev/null 2>&1
+idf.py -p /dev/cu.usbmodem1101 flash
+```
+
+모니터:
+
+```sh
+. /Users/hyeonjun/Workspace/WeActStudio.ESP32S3-AorB/esp/esp-idf/export.sh >/dev/null 2>&1
+idf.py -p /dev/cu.usbmodem1101 monitor
+```
 
 ## Near-Term Decisions
 
