@@ -33,10 +33,12 @@ void AppController::tick()
     if (event.type == AppEventType::KeyPressed) {
         ESP_LOGI(kTag, "key=%d state=%d", static_cast<int>(event.key), static_cast<int>(state_));
         handleKey(event.key);
-        const esp_err_t err = renderCurrentState();
-        if (err != ESP_OK) {
-            state_ = AppState::Error;
-            display_.showError("Render failed");
+        if (needs_render_) {
+            const esp_err_t err = renderCurrentState();
+            if (err != ESP_OK) {
+                state_ = AppState::Error;
+                display_.showError("Render failed");
+            }
         }
     }
 }
@@ -61,6 +63,7 @@ esp_err_t AppController::renderCurrentState()
 
 void AppController::handleKey(InputKey key)
 {
+    needs_render_ = false;
     next_render_partial_ = false;
     force_full_refresh_ = false;
 
@@ -72,20 +75,24 @@ void AppController::handleKey(InputKey key)
         case InputKey::Key4:
             if (selected_document_ > 0) {
                 --selected_document_;
+                needs_render_ = true;
                 next_render_partial_ = true;
             }
             break;
         case InputKey::Key3:
             if (selected_document_ + 1 < documents_.size()) {
                 ++selected_document_;
+                needs_render_ = true;
                 next_render_partial_ = true;
             }
             break;
         case InputKey::Key2:
             enterReading();
+            needs_render_ = true;
             next_render_partial_ = true;
             break;
         case InputKey::Key1:
+            needs_render_ = true;
             force_full_refresh_ = true;
             break;
         default:
@@ -98,17 +105,20 @@ void AppController::handleKey(InputKey key)
         const auto &pages = documents_.at(selected_document_).pages;
         switch (key) {
         case InputKey::Key1:
+            needs_render_ = true;
             force_full_refresh_ = true;
             break;
         case InputKey::Key5:
             enterLibrary();
             persistSession();
+            needs_render_ = true;
             next_render_partial_ = true;
             break;
         case InputKey::Key4:
             if (selected_page_ > 0) {
                 --selected_page_;
                 persistSession();
+                needs_render_ = true;
                 next_render_partial_ = true;
             }
             break;
@@ -116,10 +126,9 @@ void AppController::handleKey(InputKey key)
             if (selected_page_ + 1 < pages.size()) {
                 ++selected_page_;
                 persistSession();
+                needs_render_ = true;
                 next_render_partial_ = true;
             }
-            break;
-        case InputKey::Key2:
             break;
         default:
             break;

@@ -179,11 +179,13 @@ void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, Render
     std::istringstream words(normalized);
     std::string word;
     std::string current;
+    int current_cols = 0;  // tracks visualColumns(current) without recomputing
     while (words >> word) {
         while (visualColumns(word) > static_cast<int>(kMaxCharsPerLine)) {
             if (!current.empty()) {
                 lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
                 current.clear();
+                current_cols = 0;
             }
             std::string segment = takePrefixByColumns(&word, static_cast<int>(kMaxCharsPerLine));
             if (!segment.empty()) {
@@ -193,16 +195,23 @@ void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, Render
             }
         }
 
-        const int current_width = current.empty() ? 0 : visualColumns(current) + 1;
-        const int candidate_width = current_width + visualColumns(word);
-        if (candidate_width > static_cast<int>(kMaxCharsPerLine) && !current.empty()) {
+        if (word.empty()) {
+            continue;
+        }
+
+        const int word_cols = visualColumns(word);
+        // +1 for the space separator when appending to a non-empty line
+        const int needed = current.empty() ? word_cols : (current_cols + 1 + word_cols);
+        if (needed > static_cast<int>(kMaxCharsPerLine) && !current.empty()) {
             lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
             current = word;
+            current_cols = word_cols;
         } else {
             if (!current.empty()) {
                 current += ' ';
             }
             current += word;
+            current_cols = needed;
         }
     }
     if (!current.empty()) {

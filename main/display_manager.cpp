@@ -12,22 +12,8 @@ constexpr int kDividerY = 40;
 constexpr int kBodyStartY = 64;
 constexpr int kSelectionBoxPadX = 6;
 constexpr int kSelectionBoxPadY = 3;
-constexpr int kListRegionY = 48;
-constexpr int kListRegionH = 220;
-constexpr int kReadingRegionY = 0;
-constexpr int kReadingRegionH = 300;
 constexpr int kFooterBaseline = 294;
 
-void drawTopRightHint(const std::string &line1, const std::string &line2) {
-  const int right_margin = 12;
-  epaper::setUiFont();
-  const int x1 =
-      epaper::canvasWidth() - right_margin - epaper::textWidth(line1);
-  const int x2 =
-      epaper::canvasWidth() - right_margin - epaper::textWidth(line2);
-  epaper::drawTextLine(x1, 16, line1, true);
-  epaper::drawTextLine(x2, 30, line2, true);
-}
 
 void drawTopRightHintLibrary() {
   epaper::drawTriangleUp(304, 11, 4, true);
@@ -91,8 +77,8 @@ DisplayManager::showLibrary(const std::vector<DocumentEntry> &documents,
     }
   }
   if (partial) {
-    return epaper::updatePartial(0, kListRegionY, epaper::canvasWidth(),
-                                 kListRegionH);
+    return epaper::updatePartial(0, 0, epaper::canvasWidth(),
+                                 epaper::canvasHeight());
   }
   return epaper::updateFull();
 }
@@ -120,8 +106,8 @@ esp_err_t DisplayManager::showReading(const DocumentEntry &document,
   if (force_full || !partial) {
     return epaper::updateFull();
   }
-  return epaper::updatePartial(0, kReadingRegionY, epaper::canvasWidth(),
-                               kReadingRegionH);
+  return epaper::updatePartial(0, 0, epaper::canvasWidth(),
+                               epaper::canvasHeight());
 }
 
 esp_err_t DisplayManager::showError(const std::string &message) {
@@ -139,6 +125,7 @@ esp_err_t DisplayManager::showError(const std::string &message) {
 esp_err_t DisplayManager::drawMultilineText(
     int x, int y, const std::vector<RenderLine> &lines, bool emphasized) {
   (void)emphasized;
+  const int lh = epaper::lineHeight();  // cached once — font never changes mid-render
   int baseline = y;
   for (const auto &line : lines) {
     switch (line.kind) {
@@ -152,23 +139,23 @@ esp_err_t DisplayManager::drawMultilineText(
       } else {
         epaper::drawTextLine(x + 12, baseline, line.text, true);
       }
-      baseline += epaper::lineHeight() + 6;
+      baseline += lh + 6;
       break;
     case RenderLineKind::Code:
-      epaper::drawFilledRect(x, baseline - epaper::lineHeight() + 2, 2, epaper::lineHeight(), true);
+      epaper::drawFilledRect(x, baseline - lh + 2, 2, lh, true);
       epaper::drawTextLine(x + 10, baseline, line.text, true);
-      baseline += epaper::lineHeight() + 4;
+      baseline += lh + 4;
       break;
     case RenderLineKind::Math:
-      epaper::drawRect(x, baseline - epaper::lineHeight() + 1, epaper::textWidth(line.text) + 10, epaper::lineHeight() + 4, true, 1);
+      epaper::drawRect(x, baseline - lh + 1, epaper::textWidth(line.text) + 10, lh + 4, true, 1);
       epaper::drawTextLine(x + 5, baseline, line.text, true);
-      baseline += epaper::lineHeight() + 6;
+      baseline += lh + 6;
       break;
     case RenderLineKind::Quote:
-      epaper::drawFilledRect(x, baseline - epaper::lineHeight() + 2, 2, epaper::lineHeight(), true);
+      epaper::drawFilledRect(x, baseline - lh + 2, 2, lh, true);
       epaper::drawTextLine(x + 10, baseline, line.text, true);
       epaper::drawHLine(x + 10, baseline + 2, epaper::textWidth(line.text), true);
-      baseline += epaper::lineHeight() + 6;
+      baseline += lh + 6;
       break;
     case RenderLineKind::Rule:
       epaper::drawHLine(x, baseline - 4, epaper::canvasWidth() - (x * 2), true);
@@ -181,7 +168,7 @@ esp_err_t DisplayManager::drawMultilineText(
       } else {
         epaper::drawTextLine(x, baseline, line.text, true);
       }
-      baseline += epaper::lineHeight() + 6;
+      baseline += lh + 6;
       break;
     }
   }

@@ -26,6 +26,7 @@ private:
     void persistSession();
 
     AppState state_{AppState::Boot};
+    bool needs_render_{false};
     bool next_render_partial_{false};
     bool force_full_refresh_{false};
     DisplayManager display_;
