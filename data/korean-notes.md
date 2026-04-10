@@ -16,6 +16,22 @@ ESP-Reader는 이제 한국어 UI 폰트를 사용할 수 있습니다.
 
 사용자는 페이지를 넘길 때마다 현재 위치를 쉽게 인지할 수 있어야 하고, 선택된 항목도 한눈에 보이는 편이 좋다.
 
+## 코드 블록
+
+```cpp
+reader.open(document);
+reader.goToPage(saved_page);
+reader.renderCurrentPage();
+```
+
+## 인라인 요소
+
+이 문단에는 `inline_code()` 와 **강조 텍스트** 그리고 *기울임 표시*가 함께 들어간다.
+
+> 이 영역은 인용 블록처럼 보여야 한다.
+
+---
+
 ## 다음 단계
 
 1. 세션 저장과 복원

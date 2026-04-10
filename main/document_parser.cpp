@@ -122,25 +122,72 @@ std::string basenameWithoutExtension(const std::string &path)
     return dot == std::string::npos ? file : file.substr(0, dot);
 }
 
-void pushWrapped(std::vector<std::string> &lines, const std::string &text)
+bool isRuleLine(const std::string &text)
+{
+    if (text.size() < 3) {
+        return false;
+    }
+    return std::all_of(text.begin(), text.end(), [](char c) { return c == '-'; });
+}
+
+std::string normalizeInlineMarkdown(const std::string &text)
+{
+    std::string out;
+    out.reserve(text.size());
+
+    for (std::size_t i = 0; i < text.size();) {
+        if (i + 1 < text.size() && text[i] == '*' && text[i + 1] == '*') {
+            i += 2;
+            continue;
+        }
+        if (text[i] == '*') {
+            ++i;
+            continue;
+        }
+        if (text[i] == '`') {
+            out += '[';
+            ++i;
+            while (i < text.size() && text[i] != '`') {
+                out += text[i++];
+            }
+            out += ']';
+            if (i < text.size() && text[i] == '`') {
+                ++i;
+            }
+            continue;
+        }
+        out += text[i++];
+    }
+
+    return out;
+}
+
+bool isBoldLine(const std::string &text)
+{
+    return text.find("**") != std::string::npos;
+}
+
+void pushWrapped(std::vector<RenderLine> &lines, const std::string &text, RenderLineKind kind)
 {
     if (text.empty()) {
-        lines.emplace_back("");
+        lines.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
         return;
     }
 
-    std::istringstream words(text);
+    const bool bold = isBoldLine(text);
+    const std::string normalized = normalizeInlineMarkdown(text);
+    std::istringstream words(normalized);
     std::string word;
     std::string current;
     while (words >> word) {
         while (visualColumns(word) > static_cast<int>(kMaxCharsPerLine)) {
             if (!current.empty()) {
-                lines.push_back(current);
+                lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
                 current.clear();
             }
             std::string segment = takePrefixByColumns(&word, static_cast<int>(kMaxCharsPerLine));
             if (!segment.empty()) {
-                lines.push_back(segment);
+                lines.push_back(RenderLine{.text = segment, .kind = kind, .bold = bold});
             } else {
                 break;
             }
@@ -149,7 +196,7 @@ void pushWrapped(std::vector<std::string> &lines, const std::string &text)
         const int current_width = current.empty() ? 0 : visualColumns(current) + 1;
         const int candidate_width = current_width + visualColumns(word);
         if (candidate_width > static_cast<int>(kMaxCharsPerLine) && !current.empty()) {
-            lines.push_back(current);
+            lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
             current = word;
         } else {
             if (!current.empty()) {
@@ -159,11 +206,11 @@ void pushWrapped(std::vector<std::string> &lines, const std::string &text)
         }
     }
     if (!current.empty()) {
-        lines.push_back(current);
+        lines.push_back(RenderLine{.text = current, .kind = kind, .bold = bold});
     }
 }
 
-void pushPage(std::vector<DocumentPage> &pages, const std::string &title, std::vector<std::string> &buffer)
+void pushPage(std::vector<DocumentPage> &pages, const std::string &title, std::vector<RenderLine> &buffer)
 {
     if (buffer.empty()) {
         return;
@@ -176,7 +223,7 @@ void pushPage(std::vector<DocumentPage> &pages, const std::string &title, std::v
     buffer.clear();
 }
 
-void appendPageLine(std::vector<DocumentPage> &pages, const std::string &title, std::vector<std::string> &buffer, const std::string &line)
+void appendPageLine(std::vector<DocumentPage> &pages, const std::string &title, std::vector<RenderLine> &buffer, const RenderLine &line)
 {
     if (buffer.size() >= kMaxLinesPerPage) {
         pushPage(pages, title, buffer);
@@ -184,55 +231,105 @@ void appendPageLine(std::vector<DocumentPage> &pages, const std::string &title, 
     buffer.push_back(line);
 }
 
-std::vector<std::string> parseSourceToLines(const std::string &source)
+std::vector<RenderLine> parseSourceToLines(const std::string &source)
 {
-    std::vector<std::string> output;
+    std::vector<RenderLine> output;
     std::istringstream stream(source);
     std::string line;
     bool in_code_block = false;
+    bool in_math_block = false;
 
     while (std::getline(stream, line)) {
         std::string trimmed = trim(line);
         if (trimmed.rfind("```", 0) == 0) {
             in_code_block = !in_code_block;
-            output.emplace_back(in_code_block ? "[code]" : "");
+            output.push_back(RenderLine{.text = in_code_block ? "[code]" : "", .kind = in_code_block ? RenderLineKind::Code : RenderLineKind::Spacer});
+            continue;
+        }
+        if (trimmed == "$$") {
+            in_math_block = !in_math_block;
+            output.push_back(RenderLine{.text = in_math_block ? "[math]" : "", .kind = in_math_block ? RenderLineKind::Math : RenderLineKind::Spacer});
             continue;
         }
 
         if (trimmed.empty()) {
-            output.emplace_back("");
+            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
             continue;
         }
 
         if (in_code_block) {
             while (visualColumns(trimmed) > static_cast<int>(kMaxCharsPerLine)) {
-                output.push_back(takePrefixByColumns(&trimmed, static_cast<int>(kMaxCharsPerLine)));
+                output.push_back(RenderLine{
+                    .text = takePrefixByColumns(&trimmed, static_cast<int>(kMaxCharsPerLine)),
+                    .kind = RenderLineKind::Code,
+                });
             }
-            output.push_back(trimmed);
+            output.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Code});
+            continue;
+        }
+
+        if (in_math_block) {
+            while (visualColumns(trimmed) > static_cast<int>(kMaxCharsPerLine)) {
+                output.push_back(RenderLine{
+                    .text = takePrefixByColumns(&trimmed, static_cast<int>(kMaxCharsPerLine)),
+                    .kind = RenderLineKind::Math,
+                });
+            }
+            output.push_back(RenderLine{.text = trimmed, .kind = RenderLineKind::Math});
+            continue;
+        }
+
+        if (trimmed.size() >= 2 && trimmed.front() == '$' && trimmed.back() == '$' && trimmed != "$$") {
+            pushWrapped(output, trimmed, RenderLineKind::Math);
             continue;
         }
 
         if (trimmed.rfind("### ", 0) == 0) {
-            pushWrapped(output, std::string("### ") + trimmed.substr(4));
-            output.emplace_back("");
+            pushWrapped(output, std::string("### ") + trimmed.substr(4), RenderLineKind::Normal);
+            if (!output.empty()) {
+                output.back().bold = true;
+            }
+            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
             continue;
         }
         if (trimmed.rfind("## ", 0) == 0) {
-            pushWrapped(output, std::string("## ") + trimmed.substr(3));
-            output.emplace_back("");
+            pushWrapped(output, std::string("## ") + trimmed.substr(3), RenderLineKind::Normal);
+            if (!output.empty()) {
+                output.back().bold = true;
+            }
+            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
             continue;
         }
         if (trimmed.rfind("# ", 0) == 0) {
-            pushWrapped(output, trimmed.substr(2));
-            output.emplace_back("");
+            pushWrapped(output, trimmed, RenderLineKind::Normal);
+            if (!output.empty()) {
+                output.back().bold = true;
+            }
+            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Spacer});
             continue;
         }
         if (trimmed.rfind("- ", 0) == 0 || trimmed.rfind("* ", 0) == 0) {
-            pushWrapped(output, std::string("* ") + trimmed.substr(2));
+            pushWrapped(output, trimmed.substr(2), RenderLineKind::List);
+            continue;
+        }
+        if (trimmed.rfind("> ", 0) == 0) {
+            pushWrapped(output, trimmed.substr(2), RenderLineKind::Quote);
+            continue;
+        }
+        if (isRuleLine(trimmed)) {
+            output.push_back(RenderLine{.text = "", .kind = RenderLineKind::Rule});
+            continue;
+        }
+        if (trimmed.size() > 3 && std::isdigit(static_cast<unsigned char>(trimmed[0])) != 0) {
+            const std::size_t dot = trimmed.find(". ");
+            if (dot != std::string::npos) {
+                pushWrapped(output, trimmed.substr(dot + 2), RenderLineKind::List);
+                continue;
+            }
             continue;
         }
 
-        pushWrapped(output, trimmed);
+        pushWrapped(output, trimmed, RenderLineKind::Normal);
     }
 
     return output;
@@ -246,8 +343,8 @@ DocumentEntry DocumentParser::parse(const std::string &path, const std::string &
     document.path = path;
     document.title = basenameWithoutExtension(path);
 
-    std::vector<std::string> lines = parseSourceToLines(source);
-    std::vector<std::string> page_buffer;
+    std::vector<RenderLine> lines = parseSourceToLines(source);
+    std::vector<RenderLine> page_buffer;
     for (const auto &line : lines) {
         appendPageLine(document.pages, document.title, page_buffer, line);
     }
@@ -256,7 +353,7 @@ DocumentEntry DocumentParser::parse(const std::string &path, const std::string &
     if (document.pages.empty()) {
         document.pages.push_back(DocumentPage{
             .title = document.title,
-            .lines = {"(empty document)"},
+            .lines = {RenderLine{.text = "(empty document)", .kind = RenderLineKind::Normal}},
         });
     }
 

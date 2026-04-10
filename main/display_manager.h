@@ -15,5 +15,5 @@ public:
     esp_err_t showError(const std::string &message);
 
 private:
-    esp_err_t drawMultilineText(int x, int y, const std::vector<std::string> &lines, bool emphasized);
+    esp_err_t drawMultilineText(int x, int y, const std::vector<RenderLine> &lines, bool emphasized);
 };

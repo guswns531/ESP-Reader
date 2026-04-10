@@ -17,6 +17,9 @@ esp_err_t AppController::init()
     ESP_RETURN_ON_ERROR(storage_.init(), kTag, "storage init");
 
     documents_ = storage_.loadDocuments();
+    for (auto &document : documents_) {
+        document.saved_page_index = session_.loadPageForDocument(document.path);
+    }
     selected_document_ = 0;
     selected_page_ = 0;
     restoreSession();
@@ -181,5 +184,6 @@ void AppController::persistSession()
     session.page_index = static_cast<uint32_t>(selected_page_);
     session.valid = true;
     documents_[selected_document_].saved_page_index = selected_page_;
+    session_.savePageForDocument(documents_[selected_document_].path, static_cast<uint32_t>(selected_page_));
     session_.save(session);
 }

@@ -16,6 +16,7 @@ constexpr int kListRegionY = 48;
 constexpr int kListRegionH = 220;
 constexpr int kReadingRegionY = 0;
 constexpr int kReadingRegionH = 300;
+constexpr int kFooterBaseline = 294;
 
 void drawTopRightHint(const std::string &line1, const std::string &line2) {
   const int right_margin = 12;
@@ -64,7 +65,10 @@ DisplayManager::showLibrary(const std::vector<DocumentEntry> &documents,
 
   if (documents.empty()) {
     ESP_ERROR_CHECK(drawMultilineText(
-        kMarginX, kBodyStartY, {"NO DOCUMENTS", "PUT .MD IN SPIFFS"}, false));
+        kMarginX, kBodyStartY,
+        {RenderLine{.text = "NO DOCUMENTS", .kind = RenderLineKind::Normal},
+         RenderLine{.text = "PUT .MD IN SPIFFS", .kind = RenderLineKind::Normal}},
+        false));
     return epaper::updateFull();
   } else {
     int baseline = kBodyStartY;
@@ -108,6 +112,11 @@ esp_err_t DisplayManager::showReading(const DocumentEntry &document,
   ESP_ERROR_CHECK(drawMultilineText(kMarginX, kBodyStartY,
                                     document.pages[safe_index].lines, false));
 
+  const std::string page_status =
+      std::to_string(safe_index + 1) + " / " + std::to_string(document.pages.size());
+  const int page_status_x = epaper::canvasWidth() - 8 - epaper::textWidth(page_status);
+  epaper::drawTextLine(page_status_x, kFooterBaseline, page_status, true);
+
   if (force_full || !partial) {
     return epaper::updateFull();
   }
@@ -121,18 +130,60 @@ esp_err_t DisplayManager::showError(const std::string &message) {
   epaper::drawTitleText(kMarginX, kHeaderBaseline, "ERROR", true);
   epaper::drawHLine(kMarginX, kDividerY, epaper::canvasWidth() - (kMarginX * 2),
                     true);
-  return drawMultilineText(kMarginX, kBodyStartY, {message}, false) == ESP_OK
+  return drawMultilineText(kMarginX, kBodyStartY,
+                           {RenderLine{.text = message, .kind = RenderLineKind::Normal}}, false) == ESP_OK
              ? epaper::updateFull()
              : ESP_FAIL;
 }
 
 esp_err_t DisplayManager::drawMultilineText(
-    int x, int y, const std::vector<std::string> &lines, bool emphasized) {
+    int x, int y, const std::vector<RenderLine> &lines, bool emphasized) {
   (void)emphasized;
   int baseline = y;
   for (const auto &line : lines) {
-    epaper::drawTextLine(x, baseline, line, true);
-    baseline += epaper::lineHeight() + 6;
+    switch (line.kind) {
+    case RenderLineKind::Spacer:
+      baseline += 6;
+      break;
+    case RenderLineKind::List:
+      epaper::drawFilledRect(x, baseline - 5, 4, 4, true);
+      if (line.bold) {
+        epaper::drawTextLineBold(x + 12, baseline, line.text, true);
+      } else {
+        epaper::drawTextLine(x + 12, baseline, line.text, true);
+      }
+      baseline += epaper::lineHeight() + 6;
+      break;
+    case RenderLineKind::Code:
+      epaper::drawFilledRect(x, baseline - epaper::lineHeight() + 2, 2, epaper::lineHeight(), true);
+      epaper::drawTextLine(x + 10, baseline, line.text, true);
+      baseline += epaper::lineHeight() + 4;
+      break;
+    case RenderLineKind::Math:
+      epaper::drawRect(x, baseline - epaper::lineHeight() + 1, epaper::textWidth(line.text) + 10, epaper::lineHeight() + 4, true, 1);
+      epaper::drawTextLine(x + 5, baseline, line.text, true);
+      baseline += epaper::lineHeight() + 6;
+      break;
+    case RenderLineKind::Quote:
+      epaper::drawFilledRect(x, baseline - epaper::lineHeight() + 2, 2, epaper::lineHeight(), true);
+      epaper::drawTextLine(x + 10, baseline, line.text, true);
+      epaper::drawHLine(x + 10, baseline + 2, epaper::textWidth(line.text), true);
+      baseline += epaper::lineHeight() + 6;
+      break;
+    case RenderLineKind::Rule:
+      epaper::drawHLine(x, baseline - 4, epaper::canvasWidth() - (x * 2), true);
+      baseline += 8;
+      break;
+    case RenderLineKind::Normal:
+    default:
+      if (line.bold) {
+        epaper::drawTextLineBold(x, baseline, line.text, true);
+      } else {
+        epaper::drawTextLine(x, baseline, line.text, true);
+      }
+      baseline += epaper::lineHeight() + 6;
+      break;
+    }
   }
   return ESP_OK;
 }
