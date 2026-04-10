@@ -19,6 +19,10 @@ void drawTextLineBold(int x, int baseline_y, const std::string &text, bool black
 void drawTitleText(int x, int baseline_y, const std::string &text, bool black);
 int titleTextWidth(const std::string &text);
 int titleLineHeight();
+void drawTriangleUp(int x, int y, int size, bool black);
+void drawTriangleDown(int x, int y, int size, bool black);
+void drawTriangleLeft(int x, int y, int size, bool black);
+void drawTriangleRight(int x, int y, int size, bool black);
 void drawFilledRect(int x, int y, int w, int h, bool black);
 void drawRect(int x, int y, int w, int h, bool black, int thickness);
 void drawHLine(int x, int y, int w, bool black);

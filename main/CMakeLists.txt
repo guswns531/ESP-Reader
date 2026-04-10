@@ -6,10 +6,12 @@ idf_component_register(
         "document_parser.cpp"
         "epaper_hal.cpp"
         "input_manager.cpp"
+        "session_manager.cpp"
         "storage_manager.cpp"
         "U8g2_for_Adafruit_GFX.cpp"
         "u8g2_font_unifont_t_korean2.cpp"
     PRIV_REQUIRES
+        nvs_flash
         spiffs
         spi_flash
         esp_driver_spi

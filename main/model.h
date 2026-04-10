@@ -13,4 +13,5 @@ struct DocumentEntry {
     std::string title;
     std::string path;
     std::vector<DocumentPage> pages;
+    std::size_t saved_page_index{0};
 };

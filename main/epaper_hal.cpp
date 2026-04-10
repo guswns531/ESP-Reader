@@ -355,6 +355,42 @@ int titleLineHeight()
     return FreeMonoBold9pt7b.yAdvance * kTitleScale;
 }
 
+void drawTriangleUp(int x, int y, int size, bool black)
+{
+    for (int row = 0; row < size; ++row) {
+        const int start = x + (size - row - 1);
+        const int width = (row * 2) + 1;
+        drawFilledRect(start, y + row, width, 1, black);
+    }
+}
+
+void drawTriangleDown(int x, int y, int size, bool black)
+{
+    for (int row = 0; row < size; ++row) {
+        const int start = x + row;
+        const int width = ((size - row - 1) * 2) + 1;
+        drawFilledRect(start, y + row, width, 1, black);
+    }
+}
+
+void drawTriangleLeft(int x, int y, int size, bool black)
+{
+    for (int col = 0; col < size; ++col) {
+        const int start = y + (size - col - 1);
+        const int height = (col * 2) + 1;
+        drawFilledRect(x + col, start, 1, height, black);
+    }
+}
+
+void drawTriangleRight(int x, int y, int size, bool black)
+{
+    for (int col = 0; col < size; ++col) {
+        const int start = y + col;
+        const int height = ((size - col - 1) * 2) + 1;
+        drawFilledRect(x + col, start, 1, height, black);
+    }
+}
+
 void drawFilledRect(int x, int y, int w, int h, bool black)
 {
     for (int yy = y; yy < y + h; ++yy) {

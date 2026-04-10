@@ -13,12 +13,14 @@ esp_err_t AppController::init()
 {
     ESP_RETURN_ON_ERROR(display_.init(), kTag, "display init");
     ESP_RETURN_ON_ERROR(input_.init(), kTag, "input init");
+    ESP_RETURN_ON_ERROR(session_.init(), kTag, "session init");
     ESP_RETURN_ON_ERROR(storage_.init(), kTag, "storage init");
 
     documents_ = storage_.loadDocuments();
     selected_document_ = 0;
     selected_page_ = 0;
-    enterLibrary();
+    restoreSession();
+    state_ = AppState::Library;
     return renderCurrentState();
 }
 
@@ -45,7 +47,7 @@ esp_err_t AppController::renderCurrentState()
         if (documents_.empty()) {
             return display_.showLibrary(documents_, selected_document_, false);
         }
-        return display_.showReading(documents_.at(selected_document_), selected_page_);
+        return display_.showReading(documents_.at(selected_document_), selected_page_, next_render_partial_, force_full_refresh_);
     case AppState::Error:
         return display_.showError("Unhandled app state");
     case AppState::Boot:
@@ -57,6 +59,7 @@ esp_err_t AppController::renderCurrentState()
 void AppController::handleKey(InputKey key)
 {
     next_render_partial_ = false;
+    force_full_refresh_ = false;
 
     if (state_ == AppState::Library) {
         if (documents_.empty()) {
@@ -75,9 +78,12 @@ void AppController::handleKey(InputKey key)
                 next_render_partial_ = true;
             }
             break;
-        case InputKey::Key1:
         case InputKey::Key2:
             enterReading();
+            next_render_partial_ = true;
+            break;
+        case InputKey::Key1:
+            force_full_refresh_ = true;
             break;
         default:
             break;
@@ -89,31 +95,28 @@ void AppController::handleKey(InputKey key)
         const auto &pages = documents_.at(selected_document_).pages;
         switch (key) {
         case InputKey::Key1:
-            enterLibrary();
+            force_full_refresh_ = true;
             break;
         case InputKey::Key5:
-            if (selected_page_ > 0) {
-                --selected_page_;
-            }
-            break;
-        case InputKey::Key2:
-            if (selected_page_ + 1 < pages.size()) {
-                ++selected_page_;
-            }
+            enterLibrary();
+            persistSession();
+            next_render_partial_ = true;
             break;
         case InputKey::Key4:
-            if (selected_page_ >= 5) {
-                selected_page_ -= 5;
-            } else {
-                selected_page_ = 0;
+            if (selected_page_ > 0) {
+                --selected_page_;
+                persistSession();
+                next_render_partial_ = true;
             }
             break;
         case InputKey::Key3:
-            if (selected_page_ + 5 < pages.size()) {
-                selected_page_ += 5;
-            } else if (!pages.empty()) {
-                selected_page_ = pages.size() - 1;
+            if (selected_page_ + 1 < pages.size()) {
+                ++selected_page_;
+                persistSession();
+                next_render_partial_ = true;
             }
+            break;
+        case InputKey::Key2:
             break;
         default:
             break;
@@ -134,5 +137,49 @@ void AppController::enterReading()
         return;
     }
     state_ = AppState::Reading;
-    selected_page_ = 0;
+    if (!documents_[selected_document_].pages.empty()) {
+        selected_page_ = std::min<std::size_t>(
+            documents_[selected_document_].saved_page_index,
+            documents_[selected_document_].pages.size() - 1);
+    } else {
+        selected_page_ = 0;
+    }
+    persistSession();
+}
+
+void AppController::restoreSession()
+{
+    if (documents_.empty()) {
+        return;
+    }
+
+    const ReadingSession session = session_.load();
+    if (!session.valid) {
+        return;
+    }
+
+        for (std::size_t i = 0; i < documents_.size(); ++i) {
+            if (documents_[i].path == session.document_path) {
+                selected_document_ = i;
+                if (!documents_[i].pages.empty()) {
+                    selected_page_ = std::min<std::size_t>(session.page_index, documents_[i].pages.size() - 1);
+                    documents_[i].saved_page_index = selected_page_;
+                }
+                return;
+            }
+        }
+}
+
+void AppController::persistSession()
+{
+    if (documents_.empty()) {
+        return;
+    }
+
+    ReadingSession session;
+    session.document_path = documents_[selected_document_].path;
+    session.page_index = static_cast<uint32_t>(selected_page_);
+    session.valid = true;
+    documents_[selected_document_].saved_page_index = selected_page_;
+    session_.save(session);
 }
